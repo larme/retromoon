@@ -13,10 +13,15 @@ local OPMixin = {}
 OPMixin.static = {}
 
 function OPMixin.static:populate_op_info()
-  self.static.OP2CODE = {}
-  self.static.CODE2OP = {}
-  self.static.CODE2INST = {}
+  local op2code = {}
+  local code2op = {}
+  local code2inst = {}
+
+  self.static.OP2CODE = op2code
+  self.static.CODE2OP = code2op
+  self.static.CODE2INST = code2inst
   self.static.NUM_OPS = 0
+
   for _code, op in pairs(self.OPS) do
     self.static.NUM_OPS = self.static.NUM_OPS + 1
     code = _code - 1
@@ -24,21 +29,25 @@ function OPMixin.static:populate_op_info()
     self.static.CODE2OP[code] = op
     self.static.CODE2INST[code] = self.INSTS[op]
   end
-end
 
-function OPMixin:exec_opcode(code)
-  local inst = self.class.CODE2INST[code]
-  inst(self)
-end
+  local num_ops = self.static.NUM_OPS
+  local insts = self.INSTS
 
-function OPMixin:exec_op(op)
-  local inst = self.class.INSTS[op]
-  inst(self)
-end
+  function self:exec_opcode(code)
+    local inst = code2inst[code]
+    inst(self)
+  end
 
-function OPMixin:is_valid_opcode(code)
-  -- the assumption is that opcode starts with 0 and ends with NUM_OPS - 1
-  return code >= 0 and code < self.class.NUM_OPS
+  function self:exec_op(op)
+    local inst = insts[op]
+    inst(self)
+  end
+
+  function self:is_valid_opcode(code)
+    -- the assumption is that opcode starts with 0 and ends with NUM_OPS - 1
+    return code >= 0 and code < num_ops
+  end
+
 end
 
 function OPMixin:included(cls)
