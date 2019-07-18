@@ -1,4 +1,5 @@
 local class = require('middleclass')
+local utils = require('utils')
 
 local IMAGE_SIZE = 52488 * 16
 local ADDRESSES = 2048
@@ -60,6 +61,7 @@ function NgaVM:initialize(arg)
   self.stack_depth = arg.stack_depth or STACK_DEPTH
   self.num_devices = arg.num_devices or NUM_DEVICES
   self.addr_start = arg.addr_start or ADDR_START
+  self.packed_opcode_num = arg.packed_opcode_num or 4
   local init_memory = arg.init_memory or false
 
   self.io_device_handlers = arg.io_device_handlers or {}
@@ -167,10 +169,27 @@ function NgaVM:validate_packed_opcodes(raw_code)
 end
 
 function NgaVM:exec_packed_opcodes(raw_code)
-  for i=0,3 do
-    self:exec_opcode(raw_code & 0xFF)
-    raw_code = raw_code >> 8
+  local current
+  local valid = true
+  local opcodes = utils.unpack_opcodes(raw_code, self.packed_opcode_num)
+
+  for i=1,self.packed_opcode_num do
+    current = opcodes[i]
+    if not self:is_valid_opcode(current) then
+      valid = false
+      break
+    end
   end
+
+  if valid then
+    for i=1,self.packed_opcode_num do
+      current = opcodes[i]
+      self:exec_opcode(current)
+    end
+  end
+
+  return valid
+
 end
 
 -- ops
