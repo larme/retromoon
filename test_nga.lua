@@ -1,6 +1,6 @@
 require("profiler")
 local class = require('middleclass')
-local NgaVM = require('nga2')
+local NgaVM = require('nga')
 
 local TestNgaVM = class('TestNgaVM', NgaVM)
 
@@ -51,9 +51,8 @@ function TestNgaVM:exec(entry)
 
     local raw_code = self.memory[self.ip]
 
-    if self:validate_packed_opcodes(raw_code) then
-      self:exec_packed_opcodes(raw_code)
-    else
+    local status = self:exec_packed_opcodes(raw_code)
+    if not status then
       print("Invalid Bytecode", raw_code, self.ip)
       self.ip = 2000000
     end

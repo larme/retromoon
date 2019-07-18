@@ -154,20 +154,6 @@ function NgaVM:load_image(path)
   assert(f:close())
 end
 
-function NgaVM:validate_packed_opcodes(raw_code)
-    local current
-    local valid = -1
-    for i=0,3 do
-    current = raw_code & 0xFF
-    if not self:is_valid_opcode(current) then
-      valid = 0
-      break
-    end
-    raw_code = raw_code >> 8
-  end
-  return valid
-end
-
 function NgaVM:exec_packed_opcodes(raw_code)
   local current
   local valid = true
