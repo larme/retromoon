@@ -112,7 +112,7 @@ function run()
     for i=vm.addr_start, vm.sp do
       io.stdout:write(tostring(vm.data[i]) .. ' ')
     end
-    print("\nOK> ")
+    io.stdout:write("\nOK> ")
     local line = io.stdin:read()
     if line == 'bye' then
       done = true
