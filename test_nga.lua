@@ -62,7 +62,7 @@ end
 
 local io_query_handlers = {}
 
-io_query_handlers[1] = function(vm)
+io_query_handlers[0] = function(vm)
   vm.sp = vm.sp + 1
   vm.alias.tos = 0
   vm.alias.nos = 0
@@ -79,11 +79,11 @@ local function disp_char(vm)
       io.stdout:write(string.char)
     end
   end
-  vm.exec_op('drop')
+  vm:exec_op('drop')
   io.stdout:flush()
 end
 
-io_device_handlers[1] = disp_char
+io_device_handlers[0] = disp_char
 
 function split(s, sep)
   if sep == nil then
@@ -101,6 +101,7 @@ function run()
     addr_start = 0,
     io_device_handlers = io_device_handlers,
     io_query_handlers = io_query_handlers,
+    num_devices = 1,
   }
   vm:load_image('image.txt')
 
