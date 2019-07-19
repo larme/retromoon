@@ -10,7 +10,6 @@ local ADDR_START = 1
 -- op mixin
 
 local OPMixin = {}
-OPMixin.static = {}
 
 function OPMixin:propagate_op_info()
   local op2code = {}
@@ -30,17 +29,22 @@ function OPMixin:propagate_op_info()
     code2op[code] = op
     code2inst[code] = op2inst[op]
   end
+end
 
+function OPMixin:setup_op_exec()
   local num_ops = self._ops.num_ops
+  local vm = self._vm_proxy -- for faster access
+  local code2inst = self._ops.code2inst
+  local op2inst = self._ops.op2inst
 
   function self:exec_opcode(code)
     local inst = code2inst[code]
-    inst(self)
+    inst(vm)
   end
 
   function self:exec_op(op)
     local inst = op2inst[op]
-    inst(self)
+    inst(vm)
   end
 
   function self:is_valid_opcode(code)
@@ -60,6 +64,13 @@ function OPMixin:included(cls)
     self._ops.op2inst = arg.op2inst or self.class.OP2INST
     self:propagate_op_info()
   end
+
+  local old_setup = cls.setup
+  function cls:setup(arg)
+    old_setup(self)
+    self._vm_proxy._ops = self._ops
+    self:setup_op_exec()
+  end
 end
 
 -- nga vm
@@ -71,48 +82,74 @@ end
 local NgaVM = class('NgaVM')
 
 function NgaVM:initialize(arg)
-  raw = {}
-  rawset(self, 'raw', raw)
-  self.image_size = arg.image_size or IMAGE_SIZE
-  self.addresses = arg.addresses or ADDRESSES
-  self.stack_depth = arg.stack_depth or STACK_DEPTH
-  self.num_devices = arg.num_devices or NUM_DEVICES
-  self.addr_start = arg.addr_start or ADDR_START
-  self.packed_opcode_num = arg.packed_opcode_num or 4
+  self.state = {}
+  local conf = {}
+  conf.image_size = arg.image_size or IMAGE_SIZE
+  conf.addresses = arg.addresses or ADDRESSES
+  conf.stack_depth = arg.stack_depth or STACK_DEPTH
+  conf.num_devices = arg.num_devices or NUM_DEVICES
+  conf.addr_start = arg.addr_start or ADDR_START
+  conf.packed_opcode_num = arg.packed_opcode_num or 4
+  self.conf = conf
+
   local init_memory = arg.init_memory or false
 
-  self.io_device_handlers = arg.io_device_handlers or {}
-  self.io_query_handlers = arg.io_query_handlers or {}
+  self.io = {}
+  self.io.device_handlers = arg.io_device_handlers or {}
+  self.io.query_handlers = arg.io_query_handlers or {}
+
+  -- set vm up
+  self:reset(init_memory)
+
+end
+
+-- after instances are created and every time state/conf/io table is
+-- replaced, call this
+function NgaVM:setup()
+  self:setup_alias()
+  self:setup_proxy()
+end
+
+function NgaVM:setup_alias()
 
   -- tos, nos, tors
   local alias_mt = {}
+  local state = self.state
+  local data = state.data
+  local address = state.address
 
   function alias_mt.__index(_, k)
     if k == 'tos' then
-      return self.data[self.sp]
+      return data[state.sp]
     elseif k == 'nos' then
-      return self.data[self.sp - 1]
+      return data[state.sp - 1]
     elseif k == 'tors' then
-      return self.address[self.rp]
+      return address[state.rp]
     end
   end
 
   function alias_mt.__newindex(_, k, v)
     if k == 'tos' then
-      self.data[self.sp] = v
+      data[state.sp] = v
     elseif k == 'nos' then
-      self.data[self.sp - 1] = v
+      data[state.sp - 1] = v
     elseif k == 'tors' then
-      self.address[self.rp] = v
+      address[state.rp] = v
     end
   end
 
   self.alias = {}
   setmetatable(self.alias, alias_mt)
 
-  -- set vm up
-  self:reset(init_memory)
+end
 
+function NgaVM:setup_proxy()
+  local proxy = {}
+  proxy.conf = self.conf
+  proxy.alias = self.alias
+  proxy.state = self.state
+  proxy.io = self.io
+  self._vm_proxy = proxy
 end
 
 -- reset/prepare
@@ -121,12 +158,13 @@ function NgaVM:reset(init_memory)
     init_memory = true
   end
 
-  self.memory = {}
-  self.data = {}
-  self.address = {}
-  self.ip = self.addr_start
-  self.sp = self.addr_start
-  self.rp = self.addr_start
+  local state = self.state
+  state.memory = {}
+  state.data = {}
+  state.address = {}
+  state.ip = self.conf.addr_start
+  state.sp = self.conf.addr_start
+  state.rp = self.conf.addr_start
 
   if init_memory then
     self:init_mem()
@@ -134,26 +172,26 @@ function NgaVM:reset(init_memory)
 end
 
 function NgaVM:init_mem()
-  local start = self.addr_start
+  local start = self.conf.addr_start
 
-  local nop = self.class.OP2CODE.nop
-  for i=start, self.image_size + start - 1 do
-    self.memory[i] = nop
+  local nop = 0
+  for i=start, self.conf.image_size + start - 1 do
+    self.state.memory[i] = nop
   end
 
-  for i=start, self.stack_depth + start - 1 do
-    self.data[i] = nop
+  for i=start, self.conf.stack_depth + start - 1 do
+    self.state.data[i] = nop
   end
 
-  for i=start, self.addresses + start - 1 do
-    self.address[i] = nop
+  for i=start, self.conf.addresses + start - 1 do
+    self.state.address[i] = nop
   end
 end
 
 function NgaVM:print_stack()
   io.stdout:write("stack:\t")
-  for i=self.addr_start,self.sp do
-    io.stdout:write(tostring(self.data[i]))
+  for i=self.conf.addr_start,self.state.sp do
+    io.stdout:write(tostring(self.state.data[i]))
     io.stdout:write("\t")
   end
   io.stdout:write("\n")
@@ -162,10 +200,10 @@ end
 function NgaVM:load_image(path)
   -- each line is a cell
   local f = assert(io.open(path))
-  idx = self.addr_start
+  local idx = self.conf.addr_start
   for line in io.lines(path) do
-    cell = tonumber(line)
-    self.memory[idx] = cell
+    local cell = tonumber(line)
+    self.state.memory[idx] = cell
     idx = idx + 1
   end
   assert(f:close())
@@ -174,9 +212,10 @@ end
 function NgaVM:exec_packed_opcodes(raw_code)
   local current
   local valid = true
-  local opcodes = utils.unpack_opcodes(raw_code, self.packed_opcode_num)
+  local packed_num = self.conf.packed_opcode_num
+  local opcodes = utils.unpack_opcodes(raw_code, packed_num)
 
-  for i=1,self.packed_opcode_num do
+  for i=1,packed_num do
     current = opcodes[i]
     if not self:is_valid_opcode(current) then
       valid = false
@@ -185,7 +224,7 @@ function NgaVM:exec_packed_opcodes(raw_code)
   end
 
   if valid then
-    for i=1,self.packed_opcode_num do
+    for i=1,packed_num do
       current = opcodes[i]
       self:exec_opcode(current)
     end
@@ -214,22 +253,22 @@ function _insts.nop(vm)
 end
 
 function _insts.lit(vm)
-  vm.sp = vm.sp + 1
-  vm.ip = vm.ip + 1
-  vm.alias.tos = vm.memory[vm.ip]
+  vm.state.sp = vm.state.sp + 1
+  vm.state.ip = vm.state.ip + 1
+  vm.alias.tos = vm.state.memory[vm.state.ip]
 end
 
 function _insts.dup(vm)
-  vm.sp = vm.sp + 1
+  vm.state.sp = vm.state.sp + 1
   vm.alias.tos = vm.alias.nos
   return
 end
 
 function _insts.drop(vm)
-  vm.data[vm.sp] = 0
-  vm.sp = vm.sp - 1
-  if vm.sp < vm.addr_start then
-    vm.ip = vm.image_size
+  vm.state.data[vm.state.sp] = 0
+  vm.state.sp = vm.state.sp - 1
+  if vm.state.sp < vm.conf.addr_start then
+    vm.state.ip = vm.conf.image_size
   end
 end
 
@@ -238,99 +277,99 @@ function _insts.swap(vm)
 end
 
 function _insts.push(vm)
-  vm.rp = vm.rp + 1
+  vm.state.rp = vm.state.rp + 1
   vm.alias.tors = vm.alias.tos
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.pop(vm)
-  vm.sp = vm.sp + 1
+  vm.state.sp = vm.state.sp + 1
   vm.alias.tos = vm.alias.tors
-  vm.rp = vm.rp - 1
+  vm.state.rp = vm.state.rp - 1
 end
 
 function _insts.jump(vm)
-  vm.ip = vm.alias.tos - 1
-  vm:exec_op('drop')
+  vm.state.ip = vm.alias.tos - 1
+  _insts.drop(vm)
 end
 
 function _insts.call(vm)
-  vm.rp = vm.rp + 1
-  vm.alias.tors = vm.ip
-  vm.ip = vm.alias.tos - 1
-  vm:exec_op('drop')
+  vm.state.rp = vm.state.rp + 1
+  vm.alias.tors = vm.state.ip
+  vm.state.ip = vm.alias.tos - 1
+  _insts.drop(vm)
 end
 
 function _insts.ccall(vm)
   local addr, flag
   addr = vm.alias.tos
-  vm:exec_op('drop')
+  _insts.drop(vm)
   flag = vm.alias.tos
-  vm:exec_op('drop')
+  _insts.drop(vm)
 
   if flag ~= 0 then
-    vm.rp = vm.rp + 1
-    vm.alias.tors = vm.ip
-    vm.ip = addr - 1
+    vm.state.rp = vm.state.rp + 1
+    vm.alias.tors = vm.state.ip
+    vm.state.ip = addr - 1
   end
 end
 
 function _insts.return_(vm)
-  vm.ip = vm.alias.tors
-  vm.rp = vm.rp - 1
+  vm.state.ip = vm.alias.tors
+  vm.state.rp = vm.state.rp - 1
 end
 
 function _insts.eq(vm)
   vm.alias.nos = (vm.alias.nos == vm.alias.tos) and -1 or 0
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.neq(vm)
   vm.alias.nos = (vm.alias.nos ~= vm.alias.tos) and -1 or 0
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.lt(vm)
   vm.alias.nos = (vm.alias.nos < vm.alias.tos) and -1 or 0
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.gt(vm)
   vm.alias.nos = (vm.alias.nos > vm.alias.tos) and -1 or 0
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.fetch(vm)
-  if vm.alias.tos >= vm.addr_start then
-    vm.alias.tos = vm.memory[vm.alias.tos]
+  if vm.alias.tos >= vm.conf.addr_start then
+    vm.alias.tos = vm.state.memory[vm.alias.tos]
   elseif vm.alias.tos == -1 then
-    vm.alias.tos = vm.sp - vm.addr_start - 1
+    vm.alias.tos = vm.state.sp - vm.conf.addr_start - 1
   elseif vm.alias.tos == -2 then
-    vm.alias.tos = vm.rp
+    vm.alias.tos = vm.state.rp
   elseif vm.alias.tos == -3 then
-    vm.alias.tos = vm.image_size
+    vm.alias.tos = vm.conf.image_size
   end
 end
 
 function _insts.store(vm)
-  vm.memory[vm.alias.tos] = vm.alias.nos
-  vm:exec_op('drop')
-  vm:exec_op('drop')
+  vm.state.memory[vm.alias.tos] = vm.alias.nos
+  _insts.drop(vm)
+  _insts.drop(vm)
 end
 
 function _insts.add(vm)
   vm.alias.nos = vm.alias.nos + vm.alias.tos
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.sub(vm)
   vm.alias.nos = vm.alias.nos - vm.alias.tos
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.mul(vm)
   vm.alias.nos = vm.alias.nos * vm.alias.tos
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.divmod(vm)
@@ -341,17 +380,17 @@ end
 
 function _insts.and_(vm)
   vm.alias.nos = vm.alias.tos & vm.alias.nos
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.or_(vm)
   vm.alias.nos = vm.alias.tos | vm.alias.nos
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.xor(vm)
   vm.alias.nos = vm.alias.tos ~ vm.alias.nos
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.shift(vm)
@@ -368,36 +407,36 @@ function _insts.shift(vm)
       vm.alias.nos = x >> y
     end
   end
-  vm:exec_op('drop')
+  _insts.drop(vm)
 end
 
 function _insts.zret(vm)
   if vm.alias.tos == 0 then 
-    vm:exec_op('drop')
-    vm.ip = vm.alias.tors
-    vm.rp = vm.rp - 1
+    _insts.drop(vm)
+    vm.state.ip = vm.alias.tors
+    vm.state.rp = vm.state.rp - 1
   end
 end
 
 function _insts.end_(vm)
-  vm.ip = vm.image_size
+  vm.state.ip = vm.conf.image_size
 end
 
 function _insts.io_enum(vm)
-  vm.sp = vm.sp + 1
+  vm.state.sp = vm.state.sp + 1
   vm.alias.tos = vm.num_devices
 end
 
 function _insts.io_query(vm)
   local device = vm.alias.tos
-  vm:exec_op('drop')
-  vm.io_query_handlers[device](vm)
+  _insts.drop(vm)
+  vm.io.query_handlers[device](vm)
 end
 
 function _insts.io_interact(vm)
   local device = vm.alias.tos
-  vm:exec_op('drop')
-  vm.io_device_handlers[device](vm)
+  _insts.drop(vm)
+  vm.io.device_handlers[device](vm)
 end
 
 NgaVM:include(OPMixin)
