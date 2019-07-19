@@ -12,26 +12,26 @@ local ADDR_START = 1
 local OPMixin = {}
 OPMixin.static = {}
 
-function OPMixin.static:populate_op_info()
+function OPMixin:propagate_op_info()
   local op2code = {}
   local code2op = {}
   local code2inst = {}
+  local op2inst = self._ops.op2inst
 
-  self.static.OP2CODE = op2code
-  self.static.CODE2OP = code2op
-  self.static.CODE2INST = code2inst
-  self.static.NUM_OPS = 0
+  self._ops.op2code = op2code
+  self._ops.code2op = code2op
+  self._ops.code2inst = code2inst
+  self._ops.num_ops = 0
 
-  for _code, op in pairs(self.OPS) do
-    self.static.NUM_OPS = self.static.NUM_OPS + 1
+  for _code, op in pairs(self._ops.ops) do
+    self._ops.num_ops = self._ops.num_ops + 1
     code = _code - 1
-    self.static.OP2CODE[op] = code
-    self.static.CODE2OP[code] = op
-    self.static.CODE2INST[code] = self.INSTS[op]
+    op2code[op] = code
+    code2op[code] = op
+    code2inst[code] = op2inst[op]
   end
 
-  local num_ops = self.static.NUM_OPS
-  local insts = self.INSTS
+  local num_ops = self._ops.num_ops
 
   function self:exec_opcode(code)
     local inst = code2inst[code]
@@ -39,7 +39,7 @@ function OPMixin.static:populate_op_info()
   end
 
   function self:exec_op(op)
-    local inst = insts[op]
+    local inst = op2inst[op]
     inst(self)
   end
 
@@ -51,7 +51,15 @@ function OPMixin.static:populate_op_info()
 end
 
 function OPMixin:included(cls)
-  cls:populate_op_info()
+  local old_init = cls.initialize
+
+  function cls:initialize(arg)
+    old_init(self, arg)
+    self._ops = {}
+    self._ops.ops = arg.ops or self.class.OPS
+    self._ops.op2inst = arg.op2inst or self.class.OP2INST
+    self:propagate_op_info()
+  end
 end
 
 -- nga vm
@@ -199,7 +207,7 @@ NgaVM.static.OPS = {
 }
 
 local _insts = {}
-NgaVM.static.INSTS = _insts
+NgaVM.static.OP2INST = _insts
 
 function _insts.nop(vm)
   return
