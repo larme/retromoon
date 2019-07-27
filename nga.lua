@@ -145,6 +145,40 @@ function NgaVM:load_image(path)
   assert(f:close())
 end
 
+function NgaVM:dump_image(path, memory, start, end_, keep_trailing_zeros)
+  local cell
+
+  if not memory then
+    memory = self.state.memory
+  end
+
+  if not start then
+    start = self.conf.addr_start
+  end
+
+  if not end_ then
+    end_ = self.conf.image_size + self.conf.addr_start - 1
+  end
+
+  if not keep_trailing_zeros then
+    local last_non_zero_idx = start
+    for i=start, end_ do
+      cell = memory[i]
+      if cell and cell ~= 0 then
+	last_non_zero_idx = i
+      end
+    end
+    end_ = last_non_zero_idx
+  end
+
+  local f = assert(io.open(path, 'w'))
+  for i=start, end_ do
+    cell = memory[i]
+    f:write(cell, '\n')
+  end
+  f:close()
+end
+
 function NgaVM:exec_packed_opcodes(raw_code)
   local current
   local valid = true
