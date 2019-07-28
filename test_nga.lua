@@ -1,6 +1,7 @@
 require("profiler")
 local class = require('middleclass')
 local NgaVM = require('nga')
+local utils = require('utils')
 
 local TestNgaVM = class('TestNgaVM', NgaVM)
 
@@ -85,17 +86,6 @@ end
 
 io_device_handlers[0] = disp_char
 
-function split(s, sep)
-  if sep == nil then
-    sep = "%s"
-  end
-  local t={}
-  for str in string.gmatch(s, "([^"..sep.."]+)") do
-    table.insert(t, str)
-  end
-  return t
-end
-
 function run()
   local vm = TestNgaVM{
     addr_start = 0,
@@ -119,7 +109,7 @@ function run()
     if line == 'bye' then
       done = true
     else
-      for _, token in ipairs(split(line)) do
+      for _, token in ipairs(utils.ssplit(line)) do
 	vm:inject_string(token, 1025)
 	vm.state.sp = vm.state.sp + 1
 	vm.alias.tos = 1025
@@ -151,7 +141,7 @@ function run_profiler()
     io.stdout:write("\n")
     -- local line = '#1 #5 dup dup + dup #1 #5 dup dup + dup #1 #5 dup dup + dup #1 #5 dup dup + dup #1 #5 dup dup + dup #1 #5 dup dup + dup #1 #5 dup dup + dup #1 #5 dup dup + dup'
     local line = '#1 #5 dup dup + dup'
-    for _, token in ipairs(split(line)) do
+    for _, token in ipairs(utils.ssplit(line)) do
       print(token)
       vm:inject_string(token, 1025)
       vm.state.sp = vm.state.sp + 1

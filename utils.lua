@@ -1,5 +1,19 @@
 local utils = {}
 
+-- string/simple split
+function utils.ssplit(s, sep)
+  if sep == nil then
+    sep = '%s'
+  end
+
+  local t = {}
+  for subs in string.gmatch(s, '([^' .. sep .. ']+)') do
+    table.insert(t, subs)
+  end
+  return t
+end
+
+-- opcode packing/unpacking
 function utils.unpack_opcodes(raw_code, code_num)
   local ret = {}
   for i=1,code_num do
