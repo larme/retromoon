@@ -28,7 +28,10 @@ function NgaVM:initialize(arg)
   conf.packed_opcode_num = arg.packed_opcode_num or 4
   self.conf = conf
 
-  local init_memory = arg.init_memory or false
+  local init_memory = arg.init_memory
+  if init_memory == nil then
+    init_memory = true
+  end
 
   self.io = {}
   self.io.device_handlers = arg.io_device_handlers or {}
