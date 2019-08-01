@@ -2,7 +2,7 @@
 
 require lua 5.3
 
-`lua test_nga.lua` to get repl running.
+`lua examples/test_nga.lua` to get repl running.
 
 ## tags
 
