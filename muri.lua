@@ -166,7 +166,6 @@ local _pass1 = {}
 Muri.static.directives.pass1 = _pass1
 
 function _pass1.instruction(self, entry)
-  local op2code = self.conf.op2code
   local ops = entry[2]
   local opcodes = {}
   local pack_num = 4
