@@ -94,7 +94,7 @@ function run()
     num_devices = 1,
   }
   vm:setup()
-  vm:load_image('image.txt')
+  vm:load_image('images/image.txt')
 
   local done = false
   interpreter_addr = vm:find_entry('interpret') + 1
@@ -126,7 +126,7 @@ function run_profiler()
     io_query_handlers = io_query_handlers,
   }
   vm:setup()
-  vm:load_image('image.txt')
+  vm:load_image('images/image.txt')
 
   local done = false
   interpreter_addr = vm:find_entry('interpret') + 1
