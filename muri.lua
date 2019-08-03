@@ -178,7 +178,7 @@ function _pass1.instruction_alt(self, entry)
     local op = entry[i + 1] or 'nop'
     opcodes[i] = self:code_for(op)
   end
-  local packed_opcode = ujtils.pack_opcodes(opcodes)
+  local packed_opcode = utils.pack_opcodes(opcodes)
   self:write_cell(packed_opcode)
 end
 
