@@ -3,20 +3,16 @@
 local OPMixin = {}
 
 function OPMixin:propagate_op_info()
-  local op2code = {}
   local code2op = {}
   local code2inst = {}
   local op2inst = self._ops.op2inst
 
-  self._ops.op2code = op2code
   self._ops.code2op = code2op
   self._ops.code2inst = code2inst
   self._ops.num_ops = 0
 
-  for _code, op in pairs(self._ops.ops) do
+  for op, code in pairs(self._ops.op2code) do
     self._ops.num_ops = self._ops.num_ops + 1
-    code = _code - 1
-    op2code[op] = code
     code2op[code] = op
     code2inst[code] = op2inst[op]
   end
@@ -53,6 +49,7 @@ function OPMixin:included(cls)
     self._ops = {}
     self._ops.ops = arg.ops or self.class.OPS
     self._ops.op2inst = arg.op2inst or self.class.OP2INST
+    self._ops.op2code = arg.op2code or self.class.OP2CODE
     self:propagate_op_info()
   end
 

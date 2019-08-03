@@ -1,24 +1,18 @@
 local class = require('middleclass')
+local ops = require('ops')
 local utils = require('utils')
 
-local MAX_NAMES = 1024
-local OP2CODE = {
-  ['..'] = 0, li = 1,
-  du = 2, dr = 3,
-  sw = 4, pu = 5,
-  po = 6, ju = 7,
-  ca = 8, cc = 9,
-  re = 10, eq = 11,
-  ne = 12, lt = 13,
-  gt = 14, fe = 15,
-  st = 16, ad = 17,
-  su = 18, mu = 19,
-  di = 20, an = 21,
-  ['or'] = 22, xo = 23,
-  sh = 24, zr = 25,
-  en = 26, ie = 27,
-  iq = 28, ii = 29,
-}
+local OP2CODE = {}
+
+-- full op name
+
+for op, code in pairs(ops.op2code) do
+  OP2CODE[op] = code
+end
+
+for shortname, op in pairs(ops.shortname2op) do
+  OP2CODE[shortname] = ops.op2code[op]
+end
 
 local Muri = class('Muri')
 
