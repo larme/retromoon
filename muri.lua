@@ -171,6 +171,17 @@ function _pass1.instruction(self, entry)
   self:write_cell(packed_opcode)
 end
 
+function _pass1.instruction_alt(self, entry)
+  local opcodes = {}
+  local pack_num = 4
+  for i=1, pack_num do
+    local op = entry[i + 1] or 'nop'
+    opcodes[i] = self:code_for(op)
+  end
+  local packed_opcode = ujtils.pack_opcodes(opcodes)
+  self:write_cell(packed_opcode)
+end
+
 function _pass1.number(self, entry)
   local num = tonumber(entry[2])
   self:write_cell(num)
@@ -202,6 +213,7 @@ local function _move_on(self, entry)
 end
 
 _pass2.instruction = _move_on
+_pass2.instruction_alt = _move_on
 _pass2.number = _move_on
 
 function _pass2.label(self, entry)
