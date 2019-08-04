@@ -65,13 +65,21 @@ function _insts.pop(vm)
 end
 
 function _insts.jump(vm)
+  -- because instruction/memory pointer will be increased by 1 after
+  -- jump is executed, so we need to minus the jump-to address by 1 to
+  -- make it right
   vm.state.ip = vm.alias.tos - 1
   _insts.drop(vm)
 end
 
 function _insts.call(vm)
+  -- push current ip to address stack. after return is executed, ip
+  -- will be increased by one so go to the next instruction
   vm.state.rp = vm.state.rp + 1
   vm.alias.tors = vm.state.ip
+
+  -- after call is executed, ip will be increased by one so need to
+  -- minus the jump-to address by 1
   vm.state.ip = vm.alias.tos - 1
   _insts.drop(vm)
 end
@@ -91,6 +99,7 @@ function _insts.ccall(vm)
 end
 
 function _insts.return_(vm)
+  -- set ip to the return address. then the vm loop will increase the ip by 1 so vm will actually execute next instruction (as we want)
   vm.state.ip = vm.alias.tors
   vm.state.rp = vm.state.rp - 1
 end
