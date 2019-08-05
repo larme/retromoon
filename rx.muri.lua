@@ -59,7 +59,7 @@ local io_query = 'io_query'
 local io_interact = 'io_interact'
 
 -- shortcuts
-local function call(label)
+local function call_at(label)
   -- set next memory cell to label address, push the address to stack
   -- and call it
   i(lit, call)
