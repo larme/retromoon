@@ -281,6 +281,314 @@ i(lit, sub, swap, sub)
 d(1)
 i(return_)
 
+-- string comparisons
+
+-- s:eq repeatedly compare characters from s1 and s2. If 2 characters
+-- are different, it calls mismatch subroutine, which will simply
+-- clear the stacks (both data stack and address stack because we
+-- don't want to go back to s:eq routine if two strings are mismatch
+-- due to the way we write it) and return 0 at the stack; otherwise it
+-- will call matched, which will do some bookkeeping works and call
+-- s:eq to compare the next pair of characters if the string is not
+-- yet end, or else it will go to the final part of s:eq and return -1.
+
+-- `s:eq` and subroutines' address stack changes are a little bit
+-- confusing for me. Assuming the address stack right before caller
+-- (the caller can be `s:eq` itself because `matched` and `s:eq` call
+-- each other recursively.) call `s:eq` is [*], and after caller call
+-- `s:eq` is [* r0] where r0 is caller's return address. Then `s:eq`
+-- will call `choose` to call either `mismatch` or `matched`, where
+-- the address stack would become [* r0 r1 r2], where r2 is the
+-- address return to `choose` while r1 is the address return to
+-- `s:eq`. pop r1 will return to the final part of s:eq i.e. drop 2
+-- strings' pointer and lit -1 (true) to stack. When 2 string are
+-- equal, the zret of `matched` will be executed and return to
+-- `choose` (popping r2) and then the `choose` will return (popping
+-- r1) to `s:eq`, and then the final part of `s:eq` will be executed
+-- and return to caller (popping r0, and the address stack is back to
+-- [*]). This is the only case the call/return cycle is done
+-- "properly". Otherwise both `mismatch` and `matched` want to go back
+-- to caller directly, so they need to change the address stack from
+-- [* r0 r1 r2] to [* r0] before return. That’s why there's 2 pop and
+-- drop pair for each routine.
+
+-- data stack changes: [s2_next_ptr s1_next_ptr s1_char] ->> [0]
+-- address stack changes: [address_return_to_s:eq
+-- address_return_to_choose] -> []
+l('mismatch')
+i(drop, drop, drop, lit)
+d(0)
+i(pop, pop, drop, drop)
+i(return_)
+
+-- data stack changes: [s2_next_ptr s1_next_ptr s1_char] ->
+-- [s2_next_ptr s1_next_ptr]
+-- address stack changes: [address_return_to_s:eq
+-- address_return_to_choose] -> []
+l('matched')
+i(zret)
+i(drop, lit, call)
+r('s:eq')
+i(pop, pop, drop, drop)
+i(return_)
+
+l('s:eq')
+
+-- stack changes: [s1_ptr s2_ptr] -> [s1_ptr s2_ptr s2_ptr] -> [s1_ptr
+-- s2_ptr s2_char] -> [s1_ptr s2_ptr] -> [s1_ptr s2_ptr 1]
+-- address stack changes: [] -> [s2_char]
+i(dup, fetch, push, lit)
+d(1)
+
+-- stack changes: [s1_ptr s2_ptr 1] -> [s1_ptr s2_next_ptr] ->
+-- [s2_next_ptr s1_ptr] -> [s2_next_ptr s1_ptr s1_ptr] -> [s2_next_ptr
+-- s1_ptr s1_char]
+-- address stack is [s2_char]
+i(add, swap, dup, fetch)
+
+-- we left a s1_char on stack so matched can determine if the
+-- strings are terminated
+-- stack changes: [s2_next_ptr s1_ptr s1_char] -> [s2_next_ptr s1_ptr]
+-- -> [s2_next_ptr s1_ptr 1] -> [s2_next_ptr s1_next_ptr] ->
+-- [s2_next_ptr s1_next_ptr s1_char] -> [s2_next_ptr s1_next_ptr
+-- s1_char s1_char] -> [s2_next_ptr s1_next_ptr s1_char s1_char
+-- s2_char] -> [s2_next_ptr s1_next_ptr s1_char if_not_eq_flag] ->>
+-- [s2_next_ptr s1_next_ptr s1_char if_not_eq_flag mismatch_ptr
+-- matched_ptr choose_ptr] then call -> [s2_next_ptr s1_next_ptr s1_char]
+-- after call address stack is [addr_back_to_final_part]
+
+-- address stack changes: [s2_char] -> [s2_char s1_char] -> [s2_char]
+-- -> [] -> [address_return_to_s:eq] -> [address_return_to_s:eq
+-- address_return_to_choose]
+i(push, lit, add, pop)
+d(1)
+i(dup, pop, neq, lit)
+r('mismatch')
+i(lit, lit, call)
+r('matched')
+r('choose')
+
+-- this is the final part of s:eq, only if matched's zret execute
+-- would the code reach here so that two string is exhausted and every
+-- pair of characters are equal. In this case we clear the stack and
+-- return -1.
+-- stack changes: [s2_next_ptr s1_next_ptr] ->> [] -> [-1]
+i(drop, drop, lit, return_)
+d(-1)
+
+-- Interpreter & Compiler
+
+-- Compiler Core
+
+-- comma, store a value into memory and increments a variable (Heap)
+-- pointing to the next free address
+
+l('comma')
+i(lit, fetch, lit, call)
+r('Heap')
+r('store-next')
+i(lit, store, return_)
+r('Heap')
+
+-- comma:opcode simply fetch the opcode from _opcode label address and
+-- compile it to heap
+l('comma:opcode')
+i(fetch, lit, jump)
+r('comma')
+
+-- ($) fetch characters of string until the zero termination, then
+-- store characters to heap
+
+l('($)')
+call_at('fetch-next')
+i(zret)
+call_at('comma')
+jump_to('($)')
+
+-- comma:string call ($), then clear the stack (the next address) and
+-- compile a 0 to end the string
+
+l('comma:string')
+call_at('($)')
+i(drop, lit, lit, jump)
+d(0)
+r('comma')
+
+-- if we are in compiler mode
+l('Compiler')
+d(0)
+
+-- ; to add an _ret at the end of a function then terminate compiling
+
+l(';')
+i(lit, lit, call)
+r('_ret')
+r('comma:opcode')
+-- set compiler mode back to 0 (false)
+i(lit, lit, store, return_)
+d(0)
+r('Compiler')
+
+-- Word Classes
+
+l('class:data')
+-- if not in compoiler mode return immediately
+i(lit, fetch, zret)
+r('Compiler')
+-- else prepend lit before the data
+i(drop, lit, lit, call)
+r('_lit')
+r('comma:opcode')
+jump_to('comma')
+
+l('class:word:interpret')
+i(jump)
+
+l('class:word:compile')
+i(lit, lit, call)
+d(2049) -- packed opcode of lit and call
+r('comma')
+jump_to('comma')
+
+l('class:word')
+i(lit, fetch, lit, lit)
+r('Compiler')
+r('class:word:compile')
+r('class:word:interpret')
+jump_to('choose')
+
+l('class:primitive')
+i(lit, fetch, lit, lit)
+r('Compiler')
+r('comma:opcode')
+r('class:word:interpret')
+jump_to('choose')
+
+l('class:macro')
+i(jump)
+
+-- Dictionary
+
+-- read rx.muri to get a grasp of the structure of the dictionary. we
+-- have 4 accessors: d:link (link to the previous entry), d:xt, (link
+-- to start of the function) d:class (link to the class handler
+-- function) and d:name (zero terminated string of the name)
+
+l('d:link')
+i(return_)
+
+l('d:xt')
+i(lit, add, return_)
+d(1)
+
+l('d:class')
+i(lit, add, return_)
+d(2)
+
+l('d:name')
+i(lit, add, return_)
+d(3)
+
+-- d:add-header saa-
+-- create a dictionary entry
+
+l('d:add-header')
+
+-- data stack with params: [name cls xt]
+i(lit, fetch, push, lit)
+r('Heap')
+r('Dictionary')
+
+-- data stack now: [name cls xt dict-ptr]
+-- address stack now: [heap-value]
+-- following line fetch dictionary address then compile it to the
+-- first cell of free heap, hence it becomes the link to the previous
+-- dictionary entry part. The heap address is also increased. So we
+-- use the address stack to keep a copy of original free heap address
+i(fetch, lit, call)
+r('comma')
+
+-- data stack now: [name cls xt]
+-- address stack now: [heap-value]
+-- the following 3 lines compile dictionary function pointer, class
+-- and name
+call_at('comma')
+call_at('comma')
+call_at('comma:string')
+
+-- data stack now: []
+-- address stack now: [heap-value]
+-- we now store the original heap address (the pointer point to the
+-- dictionary we just created) to Dictionary address.
+i(pop, lit, store, return_)
+r('Dictionary')
+
+-- Dictionary Search
+
+-- store the result here
+l('Which')
+d(0)
+
+-- store the target pointer here
+l('Needle')
+d(0)
+
+-- after entry found, store the address at Which, setup a faked entry
+-- address (with value 0) so that find_next loop will break and return
+l('found')
+-- stack changes: [found-entry-ptr] -> [address_of_nop]
+i(lit, store, lit, return_)
+r('Which')
+r('_nop')
+
+-- find initialize Which, fetch the most recent dictionary entry to
+-- stack, then go to the find_next loop
+l('find')
+i(lit, lit, store, lit)
+d(0)
+r('Which')
+r('Dictionary')
+i(fetch)
+
+-- find_next loop will accept a dictionary entry pointer (if zero then
+-- return), then compare it with the string given (pointer stored at
+-- Needle), if equal then call found (using ccall), else continue
+-- find_next looping
+
+l('find_next')
+-- stack: [entry-ptr]
+-- if entry-ptr is zero then either the dictionary is exhausted or
+-- entry is found (`found` will lit _nop's address to stack so the
+-- last fetch of find_next which is used to get previous entry address
+-- will get a 0 to stack)
+
+i(zret)
+i(dup, lit, call)
+r('d:name')
+-- stack: [entry-ptr entry-name-ptr]
+-- get target string pointer from Needle and call s:eq
+i(lit, fetch, lit, call)
+r('Needle')
+r('s:eq')
+-- stack: [entry-ptr comp-result]
+-- call found if compare result is true
+i(lit, ccall)
+r('found')
+-- stack: [entry-ptr]
+-- entry-ptr fetch will get us the previous entry-ptr, now call
+-- find-next with new entry-ptr on stack
+i(fetch, lit, jump)
+r('find_next')
+
+-- d:lookup setup needle and call find, after finished put result from
+-- Which on stack and return
+l('d:lookup')
+i(lit, store, lit, call)
+r('Needle')
+r('find')
+i(lit, fetch, return_)
+r('Which')
+
 l('9999')
 d(357)
 
