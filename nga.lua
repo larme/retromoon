@@ -128,13 +128,20 @@ function NgaVM:init_mem()
   end
 end
 
-function NgaVM:print_stack()
-  io.stdout:write("stack:\t")
+function NgaVM:print_stacks()
+  io.stdout:write("data stack: ( ")
   for i=self.conf.addr_start,self.state.sp do
     io.stdout:write(tostring(self.state.data[i]))
-    io.stdout:write("\t")
+    io.stdout:write(" ")
   end
-  io.stdout:write("\n")
+  io.stdout:write(")\n")
+
+  io.stdout:write("address stack: ( ")
+  for i=self.conf.addr_start,self.state.rp do
+    io.stdout:write(tostring(self.state.address[i]))
+    io.stdout:write(" ")
+  end
+  io.stdout:write(")\n")
 end
 
 function NgaVM:load_image(path)

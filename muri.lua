@@ -57,8 +57,7 @@ function Muri:reset(init_target)
 end
 
 function Muri:fatal_error(msg)
-  print("Fatal error: " .. msg)
-  os.exit(0)
+  error("Fatal error: " .. msg)
 end
 
 function Muri:add_label(name, slice)

@@ -101,9 +101,7 @@ function run()
   interpreter = vm.state.memory[interpreter_addr]
 
   while not done do
-    for i=vm.conf.addr_start, vm.state.sp do
-      io.stdout:write(tostring(vm.state.data[i]) .. ' ')
-    end
+    vm:print_stacks()
     io.stdout:write("\nOK> ")
     local line = io.stdin:read()
     if line == 'bye' then
