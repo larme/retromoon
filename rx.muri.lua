@@ -432,7 +432,7 @@ r('Compiler')
 -- Word Classes
 
 l('class:data')
--- if not in compoiler mode return immediately
+-- if not in compiler mode return immediately
 i(lit, fetch, zret)
 r('Compiler')
 -- else prepend lit before the data
@@ -588,6 +588,325 @@ r('Needle')
 r('find')
 i(lit, fetch, return_)
 r('Which')
+
+-- Number Conversion
+
+l('next')
+-- stack changes [sign accum s] -> [sign accum s-next-ptr ch]
+call_at('fetch-next')
+-- if at the end of string, return.
+-- stack changes: [sign accum s-next-ptr ch] -> [sign accum s-next-ptr]
+i(zret)
+-- else get the digit value = ascii code of ch - 48 (ascii code of 0)
+-- stack changes: [sign accum s-next-ptr ch] -> [sign accum s-next-ptr
+-- ch 48] -> [sign accum s-next-ptr digit] -> [sign accum digit
+-- s-next-ptr] -> [sign accum digit]
+i(lit, sub, swap, push)
+d(48)
+-- add the digit to accum * 10
+-- stack changes: [sign accum digit] -> [sign digit accum 10] -> [sign
+-- digit accum*10] -> [sign new-accum]
+i(swap, lit, mul, add)
+d(10)
+-- pop next character pointer back to stack and loop again
+i(pop, lit, jump)
+r('next')
+
+-- check sign
+l('check')
+-- stack changes: [1 s] -> [1 s s] -> [1 s ch] -> [1 s ch neg-ch] ->
+-- [1 s neg-flag]
+i(dup, fetch, lit, eq)
+d(45)
+-- if not negative, return directly
+-- stack changes: [1 s neg-flag] -> [1 s]
+i(zret)
+-- else we set sign to -1 and drop the negative character
+-- stack stack changes: [1 s neg-flag] -> [1 s] -> [s 1] -> [s] -> [s
+-- -1] -> [-1 s] -> [-1 s 1] -> [-1 s-next]
+i(drop, swap, drop, lit)
+d(-1)
+i(swap, lit, add, return_)
+d(1)
+
+-- s:to-number (s-n)
+l('s:to-number')
+-- stack changes: [s] -> [s 1] -> [1 s] -> call check -> [sign s]
+-- here we first lit 1 as the default sign
+i(lit, swap, lit, call)
+d(1)
+r('check')
+-- stack changes [sign s] -> [sign s 0] -> [sign 0 s] -> call next ->
+i(lit, swap, lit, call)
+d(0)
+r('next')
+-- drop next ptr and multiple absolute value with sign
+-- stack changes: [sign accum s] -> [number]
+i(drop, mul, return_)
+
+-- token processing
+
+l('prefix:no')
+d(32)
+d(0)
+
+l('prefix:handler')
+d(0)
+
+-- string template for prefix-handler name
+l('prefixed')
+s('prefix:_')
+
+-- construct prefix:<prefix-char> handler name
+-- stack changes: [prefix-ch] -> []
+l('prefix:prepare')
+i(fetch, lit, lit, add)
+r('prefixed')
+d(7)
+i(store, return_)
+
+l('prefix:has-token?')
+-- stack changes: [s] -> [s s] -> [s s-length]
+i(dup, lit, call)
+r('s:length')
+i(lit, eq, zret)
+d(1)
+i(drop, drop, lit, return_)
+r('prefix:no')
+
+l('prefix?')
+call_at('prefix:has-token?')
+call_at('prefix:prepare')
+-- find pointer to prefix handler
+i(lit, lit, call)
+r('prefixed')
+r('d:lookup')
+-- store pointer to prefixed handler and make sure it's not 0
+i(dup, lit, store, lit)
+r('prefix:handler')
+d(0)
+i(neq, return_)
+
+-- ( (s-) comment prefix
+l('prefix:(')
+i(drop, return_)
+
+-- # (s-n) number prefix class:data
+l('prefix:#')
+call_at('s:to-number')
+jump_to('class:data')
+
+-- $ fetch (s-c) fetch class:data
+l('prefix:$')
+i(fetch, lit, jump)
+r('class:data')
+
+-- : (s-) definition class:word
+l('prefix::')
+i(lit, lit, fetch, lit)
+r('class:word')
+r('Heap')
+r('d:add-header')
+i(call)
+i(lit, fetch, lit, fetch)
+r('Heap')
+r('Dictionary')
+call_at('d:xt')
+i(store, lit, lit, store)
+d(-1)
+r('Compiler')
+i(return_)
+
+-- & (s-a)
+l('prefix:&')
+call_at('d:lookup')
+call_at('d:xt')
+i(fetch, lit, jump)
+r('class:data')
+
+-- quotations
+
+-- some notes on why [ and ] is implemented in current way:
+
+-- inside [ ] pair, the compiler mode is switched on and all token are
+-- processed by their class using different class handler's compiler
+-- mode to process these tokens.
+
+-- example 1 shows how different class of data is processed
+-- #42 is processed by prefix:# and treated by class:data
+-- &dup is processed by prefix:& and treated by class:data
+-- n:put is treated by class:word(:compile)
+
+-- OK> [ #42 &dup n:put ]
+-- [ #42 &dup n:put ]
+-- data stack: ( 0 10463 )
+-- address stack: ( 0 )
+-- heap starts from 10461: ( 1793 10470 1 42 1 9 2049 10274 10 1 10463 )
+
+-- now you can see that there are 2 extra cells both before and after the
+-- quotation body (and a ret opcode). Each quotation is compiled like
+-- below:
+
+-- ( liju lit-after-return quotation-entry-point
+--   ... quotation body ... ret
+--   lit quotation-entry-point )
+
+-- for the top level quotation, execution jumps directly to quotation
+-- entry point, and return before the ending lit opcode so that 4
+-- cells don't have any effect. when quotations are nested, quotations
+-- of all level will be compiled at once. But when the first level
+-- quotation is called, the nested quotation should not be executed
+-- (unless called in first level quotation) and simply return a
+-- address to be called. To do this, thhe first 2 cells of nested
+-- quotation let execution jump directly to the last 2 cells of nested
+-- quotation and lit the entry point of the nested quotation to stack.
+
+-- let's take a look at example 2
+
+-- OK> [ #42 [ #114 dup ] swap dup + n:put ]
+-- data stack: ( 10463 )
+-- address stack: ( )
+-- heap starts from 10461: ( 1793 10479 1 42 1793 10471 1 114 2 10 1 10467 4 2 17 2049 10274 10 1 10463 )
+
+-- heap details (address, value, annotation):
+-- | 10461 | 10462 | 10463 | 10464 | 10465 | 10466 | 10467 | 10468 | 10469 | 10470 | 10471 | 10472 | 10473 | 10474 | 10475 | 10476 | 10477 | 10478 | 10479 | 10480 |
+-- | 1793  | 10479 |   1   |  42   | 1793  | 10471 |   1   |  114  |   2   |  10   |   1   | 10467 |   4   |   2   |  17   | 2049  | 10274 |  10   |   1   | 10463 |
+-- | liju  | 10479 |  lit  |  42   | liju  | 10471 |  lit  |  114  |  dup  |  ret  |  lit  | 10467 | swap  |  dup  |  add  | lica  | n:put |  ret  |  lit  | 10463 |
+
+-- now let's call the top level quotation
+
+-- OK> call
+-- 84data stack: ( 10467 )
+-- address stack: ( )
+
+-- when called, execution jump to entry point of top level quotation
+-- 14063 (instead of 10461, the start of top level quotation), then at
+-- 10465/10466 (first 2 cells of nested quotation) it jump to the end
+-- of the nested quotation body at 10471, lit the entry point of
+-- nested quotation 10467 to stack, then execute the following code of
+-- top level quotation, finally return at 10478. cell 10479 and 10480
+-- (for top level quotation) is ignored. And the address of the nested
+-- quotation is left on stack to be used later
+
+-- in the final example we can see that quotation in function
+-- definition works similarly to a nested quotation
+
+-- OK> :mytest [ #1 ] dup ;
+-- data stack: ( )
+-- address stack: ( )
+-- heap starts from 10461: ( 10329 10471 147 109 121 116 101 115 116 0 1793 10476 1 1 10 1 10473 2 10 )
+
+-- OK> mytest
+-- data stack: ( 10473 10473 )
+-- address stack: ( )
+
+l('[')
+
+-- get free heap address + 2, this is the entry point of quotation
+-- stack changes: [] -> [heap-ptr+2]
+
+i(lit, fetch, lit, add)
+r('Heap')
+d(2)
+
+-- save previous compiler status and prepare to set compiler mode to true
+-- stack changes: [heap-ptr+2] ->> [heap-ptr previous-compiler-status
+-- -1 compiler-addr]
+
+i(lit, fetch, lit, lit)
+r('Compiler')
+d(-1)
+r('Compiler')
+
+-- write compiler mode to true, compile a jump-to code at
+-- heap-ptr. hence now heap point to heap-ptr+1
+-- stack changes: [heap-ptr+2 previous-compiler-status -1
+-- compiler-addr] -> [heap-ptr+2 previous-compiler-status] ->
+-- [heap-ptr+2 previous-compiler-status jump-to comma-ptr] ->
+-- [heap-ptr+2 previous-compiler-status]
+
+i(store, lit, lit, call)
+d(1793) -- jump-to
+r('comma')
+
+-- compile 0 at new-heap-ptr, which now point to heap-ptr+1. After
+-- that heap now point to heap-ptr+2.
+-- The heap looks like: | 1793 | 0 | ... from heap-ptr
+
+-- stack changes: [heap-ptr+2 previous-compiler-status] ->>
+-- [heap-ptr+2 previous-compiler-status heap-ptr+1 0 comma-ptr] ->
+-- [heap-ptr+2 previous-compiler-status heap-ptr+1]
+
+i(lit, fetch, lit, lit)
+r('Heap')
+d(0)
+r('comma')
+i(call)
+
+-- stack changes: [heap-ptr+2 previous-compiler-status heap-ptr+1] ->
+-- [heap-ptr+2 previous-compiler-status heap-ptr+1 heap-ptr+2]
+
+i(lit, fetch, return_)
+r('Heap')
+
+l(']')
+
+-- compile a ret opcode at the end of a quotation block, heap-ptr
+-- become heap-ptr+1
+-- stack: [start-heap-ptr+2 previous-compiler-status start-heap-ptr+1
+-- start-heap-ptr+2]
+
+i(lit, lit, call)
+r('_ret')
+r('comma:opcode')
+
+-- compile lit and start-heap-ptr+2 to heap. start-heap-ptr+2 is the
+-- entry point of this quotation. heap-ptr+1 (point to lit) is the
+-- address to which we skip the quotation body and jump when the
+-- quotation is nested in another quotation. After the jump the entry
+-- point of this quotation (start-heap-ptr+2) is lit to stack
+
+-- stack changes: [start-heap-ptr+2 previous-compiler-status
+-- start-heap-ptr+1 start-heap-ptr+2] -> [start-heap-ptr+2
+-- previous-compiler-status start-heap-ptr+1 start-heap-ptr+2
+-- heap-ptr+1] -> [start-heap-ptr+2 previous-compiler-status
+-- start-heap-ptr+1 heap-ptr+1 start-heap-ptr+2] -> [start-heap-ptr+2
+-- previous-compiler-status start-heap-ptr+1 heap-ptr+1
+-- start-heap-ptr+2 lit-ptr] -> compile lit, current heap ptr become
+-- heap-ptr+2 -> [start-heap-ptr+2 previous-compiler-status
+-- start-heap-ptr+1 heap-ptr+1 start-heap-ptr+2] -> compile
+-- start-heap-ptr+2 to heap, current heap ptr become heap-ptr+3 ->
+-- [start-heap-ptr+2 previous-compiler-status start-heap-ptr+1
+-- heap-ptr+1]
+
+-- heap from heap-ptr (end of quotation body):
+-- | ret | lit | start-heap-ptr+2
+
+i(lit, fetch, swap, lit)
+r('Heap')
+r('_lit')
+call_at('comma:opcode')
+call_at('comma')
+
+-- store the skip pointer heap-ptr+1 at the beginning of the
+-- quotation. Save previous compiler status back to compiler.
+-- Now the quotation looks like:
+-- | 1793 | addr to lit | quotation body | ret | lit | addr to entry |
+
+-- stack changes: [start-heap-ptr+2 previous-compiler-status
+-- start-heap-ptr+1 heap-ptr+1] -> [start-heap-ptr+2
+-- previous-compiler-status heap-ptr+1 start-heap-ptr+1] ->
+-- [start-heap-ptr+2 previous-compiler-status] ->> [start-heap-ptr+2]
+
+i(swap, store, lit, store)
+r('Compiler')
+
+-- get current compiler status, if zero then return, keep quotation
+-- entry point on stack, else clear quotation entry point
+i(lit, fetch, zret)
+r('Compiler')
+i(drop, drop, return_)
+
 
 l('9999')
 d(357)
