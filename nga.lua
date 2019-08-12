@@ -144,6 +144,20 @@ function NgaVM:print_stacks()
   io.stdout:write(")\n")
 end
 
+-- debug heap
+function NgaVM:print_new_heap(previous_heap)
+  local heap_addr = self.conf.addr_start + 3
+  local current_heap = self.state.memory[heap_addr]
+  if current_heap > previous_heap then
+    io.stdout:write("heap starts from " .. previous_heap .. ": ( ")
+    for i=previous_heap, current_heap - 1 do
+      io.stdout:write(self.state.memory[i] .. " ")
+    end
+    io.stdout:write(")\n")
+  end
+  return current_heap
+end
+
 function NgaVM:load_image(path)
   -- each line is a cell
   local f = assert(io.open(path))

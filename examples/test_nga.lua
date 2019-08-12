@@ -100,8 +100,10 @@ function run()
   interpreter_addr = vm:find_entry('interpret') + 1
   interpreter = vm.state.memory[interpreter_addr]
 
+  local previous_heap = vm.state.memory[3]
   while not done do
     vm:print_stacks()
+    previous_heap = vm:print_new_heap(previous_heap)
     io.stdout:write("\nOK> ")
     local line = io.stdin:read()
     if line == 'bye' then
