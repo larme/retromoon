@@ -907,6 +907,49 @@ i(lit, fetch, zret)
 r('Compiler')
 i(drop, drop, return_)
 
+-- Lightweight Control Structures
+
+-- compiler macros, only used within a definition or quotation
+
+-- repeat start a loop by put current heap on stack
+-- stack changes: [] -> [loop-start]
+l('repeat')
+i(lit, fetch, return_)
+r('Heap')
+
+-- again close a loop by compile ( lit loop-start jump ) at the end of
+-- a loop
+
+-- stack changes: [loop-start] ->> [loop-start lit-ptr
+-- comma:opcode-ptr] -> compile lit -> [loop-start] -> compile
+-- loop-start -> []
+l('again')
+i(lit, lit, call)
+r('_lit')
+r('comma:opcode')
+call_at('comma')
+-- compile jump to jump back to loop-start
+i(lit, lit, jump)
+r('_jump')
+r('comma:opcode')
+
+-- 0; break the loop if data on top of stack is 0
+l('0;')
+i(lit, lit, jump)
+r('_zret')
+r('comma:opcode')
+
+-- push and pop, move a value to/from the address stack
+
+l('push')
+i(lit, lit, jump)
+r('_push')
+r('comma:opcode')
+
+l('pop')
+i(lit, lit, jump)
+r('_pop')
+r('comma:opcode')
 
 l('9999')
 d(357)
