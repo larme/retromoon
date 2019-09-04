@@ -911,15 +911,22 @@ i(drop, drop, return_)
 
 -- compiler macros, only used within a definition or quotation
 
--- repeat start a loop by put current heap on stack
+-- repeat, again and 0;
+
+-- OK> [ repeat fetch-next 0; drop again ]
+-- data stack: ( 0 10463 )
+-- address stack: ( 0 )
+-- heap starts from 10461: ( 1793 10471 2049 59 25 3 1 10463 7 10 1 10463 )
+
+-- repeat start a loop by put current heap on stack for again at
+-- COMPILE-TIME
 -- stack changes: [] -> [loop-start]
 l('repeat')
 i(lit, fetch, return_)
 r('Heap')
 
 -- again close a loop by compile ( lit loop-start jump ) at the end of
--- a loop
-
+-- a loop at COMPILE-TIME
 -- stack changes: [loop-start] ->> [loop-start lit-ptr
 -- comma:opcode-ptr] -> compile lit -> [loop-start] -> compile
 -- loop-start -> []
@@ -933,7 +940,7 @@ i(lit, lit, jump)
 r('_jump')
 r('comma:opcode')
 
--- 0; break the loop if data on top of stack is 0
+-- 0; break the loop if data on top of stack is 0 at RUN-TIME
 l('0;')
 i(lit, lit, jump)
 r('_zret')
