@@ -646,6 +646,27 @@ i(drop, mul, return_)
 
 -- token processing
 
+-- an overall picture: order of execution in `prefix?`
+--
+-- 0. stack has a string (ptr) s that we want to process
+--
+-- 1. call `prefix:has-token?`. if length of s is 1, then s cannot be
+-- a prefixed token, it will replace s with a ptr to `prefix:no`,
+-- which will always give `prefixed` a invalid prefix-handler name; if
+-- length of s is not 1, then s may be a prefixed token, it will keep
+-- s on stack for further exams
+--
+-- 2. call `prefix:prepare` to construct a possible prefix-handler
+-- name and store the name at `prefixed`
+--
+-- 3. call `d:lookup` to find a dictionary entry with the name stored
+-- at `prefixed`. `d:lookup` will left a pointer to the prefix handler
+-- word on stack if it find one, or just left 0 on stack
+--
+-- 4. store the found (or not found) pointer to `prefix:handler`, and
+-- left a flag denoting whether a handler is found on stack by
+-- comparing it with 0
+
 l('prefix:no')
 d(32)
 d(0)
@@ -665,12 +686,21 @@ r('prefixed')
 d(7)
 i(store, return_)
 
+-- prefix:has-token? exam if the string on stack's length is 1. If yes
+-- then it's not a prefixed token and replace the string pointer to
+-- `prefix:no`; else keep the string pointer for further check
+
 l('prefix:has-token?')
--- stack changes: [s] -> [s s] -> [s s-length]
+-- stack changes: [s] -> [s s] ->> [s s-length]
 i(dup, lit, call)
 r('s:length')
+-- if s length is 1 then continue else return
+-- stack changes: [s s-length] -> [s s-length 1] -> [s len=1?]
+-- if len=1? is 0 (false) then stack -> [s]
 i(lit, eq, zret)
 d(1)
+-- s-length is 1, lit prefix:no to stack
+-- stack changes: [s len=1?] ->> [] -> [prefix:no-addr]
 i(drop, drop, lit, return_)
 r('prefix:no')
 
